@@ -52,6 +52,7 @@ struct obs_frontend_callbacks {
 	virtual bool obs_frontend_recording_active(void) = 0;
 	virtual void obs_frontend_recording_pause(bool pause) = 0;
 	virtual bool obs_frontend_recording_paused(void) = 0;
+	virtual bool obs_frontend_recording_split_file(void) = 0;
 
 	virtual void obs_frontend_replay_buffer_start(void) = 0;
 	virtual void obs_frontend_replay_buffer_save(void) = 0;
@@ -142,6 +143,14 @@ struct obs_frontend_callbacks {
 	obs_frontend_open_source_interaction(obs_source_t *source) = 0;
 
 	virtual char *obs_frontend_get_current_record_output_path(void) = 0;
+	virtual const char *
+	obs_frontend_get_locale_string(const char *string) = 0;
+
+	virtual bool obs_frontend_is_theme_dark(void) = 0;
+
+	virtual char *obs_frontend_get_last_recording(void) = 0;
+	virtual char *obs_frontend_get_last_screenshot(void) = 0;
+	virtual char *obs_frontend_get_last_replay(void) = 0;
 };
 
 EXPORT void

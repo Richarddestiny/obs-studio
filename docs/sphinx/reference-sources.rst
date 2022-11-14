@@ -23,7 +23,7 @@ dedicated header for implementing sources.
 Source Definition Structure (obs_source_info)
 ---------------------------------------------
 
-.. type:: struct obs_source_info
+.. struct:: obs_source_info
 
    Source definition structure.
 
@@ -502,6 +502,19 @@ Source Definition Structure (obs_source_info)
    - **OBS_MEDIA_STATE_ENDED**     - Ended
    - **OBS_MEDIA_STATE_ERROR**     - Error
 
+.. member:: enum gs_color_space (*obs_source_info.video_get_color_space)(void *data, size_t count, const enum gs_color_space *preferred_spaces)
+
+   Returns the color space of the source. Assume GS_CS_SRGB if not
+   implemented.
+
+   There's an optimization an SDR source can do when rendering to HDR.
+   Check if the active space is GS_CS_709_EXTENDED, and return
+   GS_CS_709_EXTENDED instead of GS_CS_SRGB to avoid an redundant
+   conversion. This optimization can only be done if the pixel shader
+   outputs linear 709, which is why it's not performed by default.
+
+   :return: The color space of the video
+
 
 .. _source_signal_handler_reference:
 
@@ -517,6 +530,10 @@ Source Signals
 
    Called when the :c:func:`obs_source_remove()` function is called on
    the source.
+
+**update** (ptr source)
+
+   Called when the source's settings have been updated.
 
 **save** (ptr source)
 
@@ -679,7 +696,7 @@ General Source Functions
    Creates a source of the specified type with the specified settings.
 
    The "source" context is used for anything related to presenting
-   or modifying video/audio.  Use obs_source_release to release it.
+   or modifying video/audio.  Use :c:func:`obs_source_release` to release it.
 
    :param   id:             The source type string identifier
    :param   name:           The desired name of the source.  If this is
@@ -719,7 +736,8 @@ General Source Functions
 
    Duplicates a source.  If the source has the
    OBS_SOURCE_DO_NOT_DUPLICATE output flag set, this only returns a
-   new reference to the same source.
+   new reference to the same source. Either way,
+   release with :c:func:`obs_source_release`.
 
    :param source:         The source to duplicate
    :param desired_name:   The desired name of the new source.  If this is
@@ -743,7 +761,7 @@ General Source Functions
 .. function:: obs_source_t *obs_source_get_ref(obs_source_t *source)
 
    Returns an incremented reference if still valid, otherwise returns
-   *NULL*.
+   *NULL*. Use :c:func:`obs_source_release` to release it.
 
 ---------------------
 
@@ -873,6 +891,18 @@ General Source Functions
 
 ---------------------
 
+.. function:: enum gs_color_space obs_source_get_color_space(obs_source_t *source, size_t count, const enum gs_color_space *preferred_spaces)
+
+   Calls the :c:member:`obs_source_info.video_get_color_space` of the
+   source to get its color space. Assumes GS_CS_SRGB if not implemented.
+
+   Disabled filters are skipped, and async video sources can figure out
+   the color space for themselves.
+
+   :return: The color space of the source
+
+---------------------
+
 .. function:: bool obs_source_get_texcoords_centered(obs_source_t *source)
 
    Hints whether or not the source will blend texels.
@@ -920,7 +950,8 @@ General Source Functions
 
 .. function:: signal_handler_t *obs_source_get_signal_handler(const obs_source_t *source)
 
-   :return: The source's signal handler
+   :return: The source's signal handler. Should not be manually freed,
+            as its lifecycle is managed by libobs.
 
    See the :ref:`source_signal_handler_reference` for more information
    on signals that are available for sources.
@@ -929,7 +960,8 @@ General Source Functions
 
 .. function:: proc_handler_t *obs_source_get_proc_handler(const obs_source_t *source)
 
-   :return: The procedure handler for a source
+   :return: The procedure handler for a source. Should not be manually freed,
+            as its lifecycle is managed by libobs.
 
 ---------------------
 
@@ -970,7 +1002,7 @@ General Source Functions
 .. function:: void obs_source_set_audio_mixers(obs_source_t *source, uint32_t mixers)
               uint32_t obs_source_get_audio_mixers(const obs_source_t *source)
 
-   Sets/gets the audio mixer channels that a source outputs to,
+   Sets/gets the audio mixer channels (i.e. audio tracks) that a source outputs to,
    depending on what bits are set.  Audio mixers allow filtering
    specific using multiple audio encoders to mix different sources
    together depending on what mixer channel they're set to.
@@ -1157,7 +1189,8 @@ General Source Functions
 .. function:: obs_data_t *obs_source_get_private_settings(obs_source_t *item)
 
    Gets private front-end settings data.  This data is saved/loaded
-   automatically.  Returns an incremented reference.
+   automatically.  Returns an incremented reference. Use :c:func:`obs_data_release()`
+   to release it.
 
 ---------------------
 
@@ -1241,11 +1274,11 @@ Functions used by sources
    enum video_format {
            VIDEO_FORMAT_NONE,
 
-           /* planar 420 format */
+           /* planar 4:2:0 formats */
            VIDEO_FORMAT_I420, /* three-plane */
            VIDEO_FORMAT_NV12, /* two-plane, luma and packed chroma */
 
-           /* packed 422 formats */
+           /* packed 4:2:2 formats */
            VIDEO_FORMAT_YVYU,
            VIDEO_FORMAT_YUY2, /* YUYV */
            VIDEO_FORMAT_UYVY,
@@ -1258,6 +1291,28 @@ Functions used by sources
 
            /* planar 4:4:4 */
            VIDEO_FORMAT_I444,
+
+           /* more packed uncompressed formats */
+           VIDEO_FORMAT_BGR3,
+
+           /* planar 4:2:2 */
+           VIDEO_FORMAT_I422,
+
+           /* planar 4:2:0 with alpha */
+           VIDEO_FORMAT_I40A,
+
+           /* planar 4:2:2 with alpha */
+           VIDEO_FORMAT_I42A,
+
+           /* planar 4:4:4 with alpha */
+           VIDEO_FORMAT_YUVA,
+
+           /* packed 4:4:4 with alpha */
+           VIDEO_FORMAT_AYUV,
+
+           /* planar 4:2:0 format, 10 bpp */
+           VIDEO_FORMAT_I010, /* three-plane */
+           VIDEO_FORMAT_P010, /* two-plane, luma and packed chroma */
    };
 
    struct obs_source_frame {
@@ -1270,9 +1325,12 @@ Functions used by sources
            enum video_format   format;
            float               color_matrix[16];
            bool                full_range;
+           uint16_t            max_luminance;
            float               color_range_min[3];
            float               color_range_max[3];
            bool                flip;
+           uint8_t             flags;
+           uint8_t             trc; /* enum video_trc */
    };
 
 ---------------------
@@ -1396,6 +1454,16 @@ Functions used by filters
 
 ---------------------
 
+.. function:: bool obs_source_process_filter_begin_with_color_space(obs_source_t *filter, enum gs_color_format format, enum gs_color_space space, enum obs_allow_direct_render allow_direct)
+
+   Similar to obs_source_process_filter_begin, but also set the active
+   color space.
+
+   :return: *true* if filtering should continue, *false* if the filter
+            is bypassed for whatever reason
+
+---------------------
+
 .. function:: void obs_source_process_filter_end(obs_source_t *filter, gs_effect_t *effect, uint32_t width, uint32_t height)
 
    Draws the filter using the effect's "Draw" technique.
@@ -1433,7 +1501,8 @@ Transitions
    :param target: | OBS_TRANSITION_SOURCE_A - Source being transitioned from, or the current source if not transitioning
                   | OBS_TRANSITION_SOURCE_B - Source being transitioned to
    :return:       An incremented reference to the source or destination
-                  sources of the transition
+                  sources of the transition. Use :c:func:`obs_source_release`
+                  to release it.
 
 ---------------------
 
@@ -1446,7 +1515,7 @@ Transitions
 .. function:: obs_source_t *obs_transition_get_active_source(obs_source_t *transition)
 
    :return: An incremented reference to the currently active source of
-            the transition
+            the transition. Use :c:func:`obs_source_release` to release it.
 
 ---------------------
 
@@ -1517,6 +1586,7 @@ Functions used by transitions
 ---------------------
 
 .. function:: void obs_transition_video_render(obs_source_t *transition, obs_transition_video_render_callback_t callback)
+              void obs_transition_video_render2(obs_source_t *transition, obs_transition_video_render_callback_t callback, gs_texture_t *placeholder_texture)
 
    Helper function used for rendering transitions.  This function will
    render two distinct textures for source A and source B of the
@@ -1528,6 +1598,10 @@ Functions used by transitions
    (0.0f..1.0f), *cx* and *cy* are the current dimensions of the
    transition, and *data* is the implementation's private data.
 
+   The *placeholder_texture* parameter allows a callback to receive
+   a replacement that isn't the default transparent texture, including
+   NULL if the caller desires.
+
    Relevant data types used with this function:
 
 .. code:: cpp
@@ -1535,6 +1609,16 @@ Functions used by transitions
    typedef void (*obs_transition_video_render_callback_t)(void *data,
                    gs_texture_t *a, gs_texture_t *b, float t,
                    uint32_t cx, uint32_t cy);
+
+---------------------
+
+.. function:: enum gs_color_space obs_transition_video_get_color_space(obs_source_t *transition)
+
+   Figure out the color space that encompasses both child sources.
+
+   The wider space wins.
+
+   :return: The color space of the transition
 
 ---------------------
 
@@ -1568,4 +1652,4 @@ Functions used by transitions
 
 .. ---------------------------------------------------------------------------
 
-.. _libobs/obs-source.h: https://github.com/jp9000/obs-studio/blob/master/libobs/obs-source.h
+.. _libobs/obs-source.h: https://github.com/obsproject/obs-studio/blob/master/libobs/obs-source.h

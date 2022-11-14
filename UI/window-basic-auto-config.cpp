@@ -150,8 +150,12 @@ AutoConfigVideoPage::AutoConfigVideoPage(QWidget *parent)
 	QString cyStr = QString::number(ovi.base_height);
 
 	int encRes = int(ovi.base_width << 16) | int(ovi.base_height);
-	ui->canvasRes->addItem(QTStr(RES_USE_CURRENT).arg(cxStr, cyStr),
-			       (int)encRes);
+
+	// Auto config only supports testing down to 240p, don't allow current
+	// resolution if it's lower than that.
+	if (ovi.base_height >= 240)
+		ui->canvasRes->addItem(QTStr(RES_USE_CURRENT).arg(cxStr, cyStr),
+				       (int)encRes);
 
 	QList<QScreen *> screens = QGuiApplication::screens();
 	for (int i = 0; i < screens.size(); i++) {
@@ -994,7 +998,7 @@ void AutoConfig::TestHardwareEncoding()
 			hardwareEncodingAvailable = nvencAvailable = true;
 		else if (strcmp(id, "obs_qsv11") == 0)
 			hardwareEncodingAvailable = qsvAvailable = true;
-		else if (strcmp(id, "amd_amf_h264") == 0)
+		else if (strcmp(id, "h264_texture_amf") == 0)
 			hardwareEncodingAvailable = vceAvailable = true;
 	}
 }
